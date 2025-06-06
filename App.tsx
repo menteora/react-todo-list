@@ -6,6 +6,7 @@ import DownloadIcon from './components/icons/DownloadIcon';
 import UploadIcon from './components/icons/UploadIcon';
 import TagIcon from './components/icons/TagIcon';
 import ChevronDownIcon from './components/icons/ChevronDownIcon';
+import DocumentDuplicateIcon from './components/icons/DocumentDuplicateIcon'; // Assuming a new icon or re-using existing
 
 const App: React.FC = () => {
   const [todos, setTodos] = useState<Todo[]>(() => {
@@ -34,8 +35,9 @@ const App: React.FC = () => {
 
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [isTagFilterAccordionOpen, setIsTagFilterAccordionOpen] = useState<boolean>(true);
+  const [isImportExportAccordionOpen, setIsImportExportAccordionOpen] = useState<boolean>(false); // State for new accordion
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const recurringFileInputRef = useRef<HTMLInputElement>(null); // New ref for recurring import
+  const recurringFileInputRef = useRef<HTMLInputElement>(null); 
 
   useEffect(() => {
     localStorage.setItem('todos', JSON.stringify(todos));
@@ -68,14 +70,7 @@ const App: React.FC = () => {
     setTodos((prevTodos) =>
       prevTodos.map((todo) => {
         if (todo.id === id) {
-          // For recurring tasks that are *not* today's instance, "completing" them resets them.
-          // This behavior is mostly handled by how isForToday works for recurring tasks.
-          // The key is that a recurring task template in backlog (isRecurring=true, isForToday=false) 
-          // doesn't really get "completed". An instance is made for today.
-          // If it's an instance (isRecurring=false, or isRecurring=true AND isForToday=true) then it can be toggled.
            if (todo.isRecurring && !todo.isForToday) { 
-             // This case should ideally not happen if UI prevents completing backlog recurring templates.
-             // If it does, we interpret it as reset.
             return { ...todo, completed: false, isForToday: false };
           }
           return { ...todo, completed: !todo.completed };
@@ -94,7 +89,6 @@ const App: React.FC = () => {
       const taskToToggle = prevTodos.find(todo => todo.id === id);
       if (!taskToToggle) return prevTodos;
 
-      // If it's a recurring template in the backlog being marked for today
       if (taskToToggle.isRecurring && !taskToToggle.isForToday) {
         const newInstanceForToday: Todo = {
           id: crypto.randomUUID(),
@@ -102,12 +96,11 @@ const App: React.FC = () => {
           completed: false,
           createdAt: Date.now(),   
           isForToday: true,        
-          isRecurring: false, // The instance itself is not the template
+          isRecurring: false, 
           tags: taskToToggle.tags ? [...taskToToggle.tags] : [],
         };
         return [...prevTodos, newInstanceForToday]; 
       } else {
-        // Regular toggle or moving an instance back to backlog
         return prevTodos.map((todo) =>
           todo.id === id ? { ...todo, isForToday: !todo.isForToday } : todo
         );
@@ -131,7 +124,6 @@ const App: React.FC = () => {
           return {
             ...todo,
             isRecurring: newIsRecurring,
-            // If it becomes a recurring template, move it to backlog
             isForToday: newIsRecurring ? false : todo.isForToday, 
           };
         }
@@ -140,34 +132,65 @@ const App: React.FC = () => {
     );
   }, []);
   
-  const sortedTodos = useMemo(() => {
-    return [...todos].sort((a,b) => {
-        // Non-completed items first
-        if (a.completed !== b.completed) {
-          return a.completed ? 1 : -1;
+  const reorderTodos = useCallback((draggedId: string, targetId: string | null) => {
+    setTodos(prevTodos => {
+        const currentTodos = [...prevTodos];
+        const draggedItemIndex = currentTodos.findIndex(t => t.id === draggedId);
+
+        if (draggedItemIndex === -1) {
+            console.warn("Dragged item not found in todos array during reorder");
+            return prevTodos;
         }
-        // Then by creation date (newest first)
-        return b.createdAt - a.createdAt; 
+
+        const [draggedItem] = currentTodos.splice(draggedItemIndex, 1);
+
+        if (targetId === null) { 
+            let lastVisibleBacklogGlobalIndex = -1;
+            for (let i = currentTodos.length - 1; i >= 0; i--) {
+                const todo = currentTodos[i];
+                if (!todo.isForToday && (!activeTagFilter || (todo.tags && todo.tags.includes(activeTagFilter)))) {
+                    lastVisibleBacklogGlobalIndex = i;
+                    break;
+                }
+            }
+            currentTodos.splice(lastVisibleBacklogGlobalIndex + 1, 0, draggedItem);
+        } else { 
+            const targetItemGlobalIndex = currentTodos.findIndex(t => t.id === targetId);
+            if (targetItemGlobalIndex === -1) {
+                console.warn("Target item not found in todos array during reorder, appending dragged item to end of backlog segment");
+                let lastVisibleBacklogGlobalIndex = -1;
+                 for (let i = currentTodos.length - 1; i >= 0; i--) {
+                    const todo = currentTodos[i];
+                     if (!todo.isForToday && (!activeTagFilter || (todo.tags && todo.tags.includes(activeTagFilter)))) {
+                        lastVisibleBacklogGlobalIndex = i;
+                        break;
+                    }
+                }
+                currentTodos.splice(lastVisibleBacklogGlobalIndex + 1, 0, draggedItem);
+            } else {
+                currentTodos.splice(targetItemGlobalIndex, 0, draggedItem);
+            }
+        }
+        return currentTodos;
     });
-  }, [todos]);
+  }, [activeTagFilter]);
+
 
   const filteredByTagTodos = useMemo(() => {
     if (!activeTagFilter) {
-      return sortedTodos;
+      return todos;
     }
-    return sortedTodos.filter(todo => todo.tags?.includes(activeTagFilter));
-  }, [sortedTodos, activeTagFilter]);
+    return todos.filter(todo => todo.tags?.includes(activeTagFilter));
+  }, [todos, activeTagFilter]);
 
   const todayTodos = useMemo(() => {
     return filteredByTagTodos.filter(todo => todo.isForToday);
   }, [filteredByTagTodos]);
 
   const otherTodos = useMemo(() => {
-    // Exclude instances of recurring tasks that are for today but completed (they show up in today's completed section)
-    // Show original recurring templates (isRecurring=true, isForToday=false)
-    // Show non-recurring, non-today tasks
     return filteredByTagTodos.filter(todo => !todo.isForToday);
   }, [filteredByTagTodos]);
+
 
   const completedTodayCount = useMemo(() => {
     return todayTodos.filter(todo => todo.completed).length;
@@ -201,7 +224,7 @@ const App: React.FC = () => {
       ...tasksToExport.map(todo => {
         const rowData = {
           ...todo,
-          tags: todo.tags?.join(';') || '', // Semicolon-separated for tags
+          tags: todo.tags?.join(';') || '', 
         };
         return headers.map(header => escapeCSVField(rowData[header as keyof typeof rowData])).join(',');
       })
@@ -237,32 +260,16 @@ const App: React.FC = () => {
     }
 
     const headerLine = lines[0];
-    const headers = headerLine.split(',').map(h => h.trim().toLowerCase()); // Use lowercase for robust matching
+    const headers = headerLine.split(',').map(h => h.trim().toLowerCase()); 
     
-    const requiredHeadersBase = ['text']; // createdAt and completed can be defaulted
+    const requiredHeadersBase = ['text']; 
     const missingHeaders = requiredHeadersBase.filter(rh => !headers.includes(rh));
     if (missingHeaders.length > 0) {
         return { error: `CSV file is missing required headers: ${missingHeaders.join(', ')}. Expected at least: ${requiredHeadersBase.join(', ')}.` };
     }
 
     const importedTasks: Todo[] = [];
-    // Regex to split CSV rows, handling quoted fields
-    // Matches a comma that is not inside quotes.
-    // Explanation:
-    // ,             // Match a comma
-    // (?=           // Followed by (positive lookahead):
-    //   (?:         //   Non-capturing group
-    //     [^"]*     //     Zero or more non-quote characters
-    //     "         //     A quote
-    //     [^"]*     //     Zero or more non-quote characters
-    //     "         //     A quote
-    //   )*          //   Repeat the non-capturing group zero or more times (i.e., an even number of quotes)
-    //   [^"]*       //   Zero or more non-quote characters
-    //   $           // End of the string
-    // )             // End of positive lookahead
-    // This ensures that commas inside properly quoted fields are not treated as delimiters.
     const csvRowRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
-
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -270,7 +277,6 @@ const App: React.FC = () => {
 
       const values = line.split(csvRowRegex).map(value => {
         let cleanValue = value.trim();
-        // Remove surrounding quotes if they exist and unescape double quotes
         if (cleanValue.startsWith('"') && cleanValue.endsWith('"')) {
           cleanValue = cleanValue.substring(1, cleanValue.length - 1).replace(/""/g, '"');
         }
@@ -278,15 +284,13 @@ const App: React.FC = () => {
       });
       
       const rowData = headers.reduce((obj, header, index) => {
-        // Only map if index is within values range, handles trailing commas better
         if (index < values.length) { 
             obj[header] = values[index];
         } else {
-            obj[header] = ''; // Default to empty string if value is missing (e.g. trailing commas in header but not data)
+            obj[header] = ''; 
         }
         return obj;
       }, {} as any);
-
 
       if (!rowData.text) {
         console.warn(`Skipping row ${i+1} due to missing text field.`);
@@ -294,7 +298,6 @@ const App: React.FC = () => {
       }
 
       const taskText = rowData.text;
-      // Tags: use 'tags' column if present and non-empty, otherwise extract from text
       const taskTagsString = rowData.tags || '';
       const taskTags = taskTagsString ? taskTagsString.split(';').map(t => t.trim()).filter(Boolean) : extractTags(taskText);
 
@@ -302,15 +305,15 @@ const App: React.FC = () => {
         importedTasks.push({
           id: crypto.randomUUID(),
           text: taskText,
-          completed: false, // Force
+          completed: false, 
           createdAt: parseInt(rowData.createdat, 10) || Date.now(),
-          isForToday: false, // Force
-          isRecurring: true, // Force
+          isForToday: false, 
+          isRecurring: true, 
           tags: taskTags,
         });
       } else {
         importedTasks.push({
-          id: crypto.randomUUID(), // Always generate new ID
+          id: crypto.randomUUID(), 
           text: taskText,
           completed: String(rowData.completed).toLowerCase() === 'true',
           createdAt: parseInt(rowData.createdat, 10) || Date.now(),
@@ -348,7 +351,7 @@ const App: React.FC = () => {
         alert("An error occurred while importing the CSV file. Please check the console for details.");
       } finally {
         if (fileInputRef.current) {
-          fileInputRef.current.value = ""; // Reset file input
+          fileInputRef.current.value = ""; 
         }
       }
     };
@@ -373,7 +376,7 @@ const App: React.FC = () => {
         return;
       }
       try {
-        const result = parseCSVTextToTodos(text, true); // forceRecurringTemplate = true
+        const result = parseCSVTextToTodos(text, true); 
          if ('error' in result) {
             alert(result.error);
             return;
@@ -385,7 +388,7 @@ const App: React.FC = () => {
         alert("An error occurred while importing recurring templates. Please check the console.");
       } finally {
         if (recurringFileInputRef.current) {
-          recurringFileInputRef.current.value = ""; // Reset file input
+          recurringFileInputRef.current.value = ""; 
         }
       }
     };
@@ -417,58 +420,81 @@ const App: React.FC = () => {
           <p className="text-gray-600 mt-2 text-sm sm:text-base">
             Organize your day, edit tasks, manage recurring duties, and plan ahead with #tags.
           </p>
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
-              onClick={handleExportCSV}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 transition-colors duration-150"
-              title="Export ALL tasks to a CSV file"
-            >
-              <DownloadIcon className="w-5 h-5" />
-              Export All CSV
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImportCSV}
-              accept=".csv"
-              className="hidden"
-              aria-hidden="true"
-            />
-            <button
-              onClick={triggerFileInput}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 transition-colors duration-150"
-              title="Import tasks from CSV (REPLACES ALL current tasks)"
-            >
-              <UploadIcon className="w-5 h-5" />
-              Import All CSV
-            </button>
-            
-            <button
-              onClick={handleExportRecurringCSV}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-sky-500 text-white font-semibold rounded-lg shadow-md hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 transition-colors duration-150"
-              title="Export RECURRING TEMPLATES to a CSV file"
-            >
-              <DownloadIcon className="w-5 h-5" />
-              Export Recurring CSV
-            </button>
-            <input
-              type="file"
-              ref={recurringFileInputRef}
-              onChange={handleImportRecurringCSV}
-              accept=".csv"
-              className="hidden"
-              aria-hidden="true"
-            />
-            <button
-              onClick={triggerRecurringFileInput}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-500 text-white font-semibold rounded-lg shadow-md hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-2 transition-colors duration-150"
-              title="Import RECURRING TEMPLATES from CSV (ADDS to existing tasks)"
-            >
-              <UploadIcon className="w-5 h-5" />
-              Import Recurring CSV
-            </button>
-          </div>
         </header>
+
+        <div className="mb-6 bg-gray-50/70 backdrop-blur-sm rounded-lg shadow">
+            <button
+              onClick={() => setIsImportExportAccordionOpen(!isImportExportAccordionOpen)}
+              className="w-full flex items-center justify-between p-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-opacity-75 rounded-t-lg hover:bg-gray-100/70 transition-colors"
+              aria-expanded={isImportExportAccordionOpen}
+              aria-controls="import-export-panel"
+            >
+              <h3 className="text-sm font-semibold text-gray-700 flex items-center">
+                <DocumentDuplicateIcon className="w-4 h-4 mr-1.5 text-indigo-600" /> {/* Example icon */}
+                Manage Data (Import/Export)
+              </h3>
+              <ChevronDownIcon
+                  className={`w-5 h-5 text-gray-500 transform transition-transform duration-200 ${
+                    isImportExportAccordionOpen ? 'rotate-180' : ''
+                  }`}
+              />
+            </button>
+            {isImportExportAccordionOpen && (
+              <div id="import-export-panel" className="p-3 border-t border-gray-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    onClick={handleExportCSV}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 transition-colors duration-150"
+                    title="Export ALL tasks to a CSV file"
+                  >
+                    <DownloadIcon className="w-5 h-5" />
+                    Export All CSV
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImportCSV}
+                    accept=".csv"
+                    className="hidden"
+                    aria-hidden="true"
+                  />
+                  <button
+                    onClick={triggerFileInput}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 transition-colors duration-150"
+                    title="Import tasks from CSV (REPLACES ALL current tasks)"
+                  >
+                    <UploadIcon className="w-5 h-5" />
+                    Import All CSV
+                  </button>
+                  
+                  <button
+                    onClick={handleExportRecurringCSV}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-sky-500 text-white font-semibold rounded-lg shadow-md hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 transition-colors duration-150"
+                    title="Export RECURRING TEMPLATES to a CSV file"
+                  >
+                    <DownloadIcon className="w-5 h-5" />
+                    Export Recurring CSV
+                  </button>
+                  <input
+                    type="file"
+                    ref={recurringFileInputRef}
+                    onChange={handleImportRecurringCSV}
+                    accept=".csv"
+                    className="hidden"
+                    aria-hidden="true"
+                  />
+                  <button
+                    onClick={triggerRecurringFileInput}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-teal-500 text-white font-semibold rounded-lg shadow-md hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-2 transition-colors duration-150"
+                    title="Import RECURRING TEMPLATES from CSV (ADDS to existing tasks)"
+                  >
+                    <UploadIcon className="w-5 h-5" />
+                    Import Recurring CSV
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
         <AddTodoForm onAddTodo={addTodo} />
 
@@ -559,7 +585,7 @@ const App: React.FC = () => {
           isTodayFocusList={true}
           onTagClick={setActiveTagFilter}
         />
-
+        
         <TodoList
           listTitle="Upcoming & Backlog 📝"
           todos={otherTodos}
@@ -572,12 +598,15 @@ const App: React.FC = () => {
           emptyListMessage={activeTagFilter ? `No tasks in backlog with tag #${activeTagFilter}.` : "Your backlog is clear! Add new tasks to plan ahead."}
           emptyListImageSeed="backlogItems"
           onTagClick={setActiveTagFilter}
+          onReorderList={reorderTodos} 
+          isDraggableContext={true}    
         />
         
         {todos.length > 0 && (
           <footer className="mt-8 pt-6 border-t border-gray-200 text-center text-sm text-gray-500">
             <p>Tip: ✏️ Edit | ⭐ Focus/Add Instance | 🔄 Recurring Template | #tag for organization.</p>
             <p className="mt-1">Double-click task text to quickly edit. Tags (#yourtag) are auto-detected.</p>
+            <p className="mt-1">Drag and drop tasks in "Upcoming & Backlog" to reorder them manually.</p>
             <p className="mt-1">Click 🔄 on a backlog task to make it a recurring template.</p>
             <p className="mt-1">Click ⭐ on a recurring template in backlog to add an instance to Today's Focus.</p>
             <p className="mt-1">Completed tasks in "Today's Focus" with the same name will group and show a count.</p>

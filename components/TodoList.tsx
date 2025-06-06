@@ -21,7 +21,9 @@ interface TodoListProps {
   emptyListMessage: string;
   emptyListImageSeed?: string;
   isTodayFocusList?: boolean;
-  onTagClick?: (tag: string) => void; // Added for tag filtering
+  onTagClick?: (tag: string) => void;
+  onReorderList?: (draggedId: string, targetId: string | null) => void; // For drag and drop
+  isDraggableContext?: boolean; // To enable drag and drop for items in this list
 }
 
 const TodoList: React.FC<TodoListProps> = ({
@@ -37,16 +39,52 @@ const TodoList: React.FC<TodoListProps> = ({
   emptyListImageSeed = "empty",
   isTodayFocusList = false,
   onTagClick,
+  onReorderList,
+  isDraggableContext = false,
 }) => {
+
+  const handleDragOverList = (e: React.DragEvent<HTMLUListElement>) => {
+    if (isDraggableContext && onReorderList) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      // Optionally, add a class to `e.currentTarget` for visual feedback
+    }
+  };
+
+  const handleDropOnList = (e: React.DragEvent<HTMLUListElement>) => {
+    if (isDraggableContext && onReorderList) {
+      e.preventDefault();
+      const draggedId = e.dataTransfer.getData('text/plain');
+      // Ensure the drop is not on a child TodoItem, which handles its own drop
+      if (draggedId && (e.target === e.currentTarget || (e.target as HTMLElement).tagName === 'UL')) {
+         onReorderList(draggedId, null); // null targetId means append to this list section
+      }
+      // Optionally, remove visual feedback class from `e.currentTarget`
+    }
+  };
+
+
   if (todos.length === 0 && !isTodayFocusList) { 
     return (
-      <div className="text-center py-6 sm:py-10">
-        <img 
-          src={`https://picsum.photos/seed/${emptyListImageSeed}/150/150`} 
-          alt="Decorative illustration" 
-          className="mx-auto mb-4 rounded-lg shadow-md w-28 h-28 sm:w-32 sm:h-32 object-cover opacity-70" 
-        />
-        <p className="text-lg text-gray-500">{emptyListMessage}</p>
+      <div className="mb-8"> {/* Wrap in mb-8 for consistency like populated list */}
+        {listTitle && (
+          <h2 className="text-2xl font-semibold text-gray-700 mb-4">{listTitle}</h2>
+        )}
+        <ul 
+          onDragOver={handleDragOverList}
+          onDrop={handleDropOnList}
+          className="min-h-[100px] border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center" // Style for empty draggable list
+          aria-label={listTitle || "Task list"}
+        >
+            <div className="text-center py-6 sm:py-10">
+              <img 
+                src={`https://picsum.photos/seed/${emptyListImageSeed}/150/150`} 
+                alt="Decorative illustration" 
+                className="mx-auto mb-4 rounded-lg shadow-md w-28 h-28 sm:w-32 sm:h-32 object-cover opacity-70" 
+              />
+              <p className="text-lg text-gray-500">{emptyListMessage}</p>
+            </div>
+        </ul>
       </div>
     );
   }
@@ -105,6 +143,7 @@ const TodoList: React.FC<TodoListProps> = ({
                 onToggleIsRecurring={onToggleIsRecurring}
                 canCompleteTasks={canCompleteTasks}
                 onTagClick={onTagClick}
+                isDraggable={false} // Not draggable in Today's Focus
               />
             ))}
           </ul>
@@ -136,6 +175,7 @@ const TodoList: React.FC<TodoListProps> = ({
                 isGroupedCompleted={true}
                 groupCount={group.completionCount}
                 onTagClick={onTagClick}
+                isDraggable={false} // Not draggable
               />
             ))}
           </ul>
@@ -144,12 +184,18 @@ const TodoList: React.FC<TodoListProps> = ({
     );
   }
 
+  // For other lists (e.g., Backlog)
   return (
     <div className="mb-8">
       {listTitle && (
         <h2 className="text-2xl font-semibold text-gray-700 mb-4">{listTitle}</h2>
       )}
-      <ul className="space-y-3">
+      <ul 
+        className="space-y-3"
+        onDragOver={handleDragOverList}
+        onDrop={handleDropOnList}
+        aria-label={listTitle || "Task list"}
+      >
         {todos.map((todo) => (
           <TodoItem
             key={todo.id}
@@ -161,6 +207,8 @@ const TodoList: React.FC<TodoListProps> = ({
             onToggleIsRecurring={onToggleIsRecurring}
             canCompleteTasks={canCompleteTasks}
             onTagClick={onTagClick}
+            isDraggable={isDraggableContext} // Enable/disable based on context
+            onReorderItem={onReorderList}    // Pass the main reorder function
           />
         ))}
       </ul>
