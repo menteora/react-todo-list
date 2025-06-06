@@ -10,5 +10,6 @@
                 "esbenp.prettier-vscode"
             ]
         }
-    }
+    },
+    "remoteUser": "node"
 }
