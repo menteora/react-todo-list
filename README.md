@@ -2,7 +2,7 @@
 
 Questa applicazione è un gestore di attività completo che integra funzionalità di base con strumenti avanzati per la produttività e l'organizzazione.
 
-Guarda la demo qui ➡️➡️➡️ https://menteora.github.io/react-todo-list/
+**Guarda la demo qui** ➡️➡️➡️ https://menteora.github.io/react-todo-list/
 
 ## 1. Gestione Fondamentale dei Task
 
